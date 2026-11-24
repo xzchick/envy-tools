@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "envy-tools"
+version = "0.1.0"
+description = "ENVY Tools: find, install, update and remove every ENVY app on macOS, Windows and Linux"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["installer", "app-manager", "envy", "cross-platform", "pyqt6"]
+dependencies = [
+  "PyQt6>=6.7,<7",
+  "certifi>=2024.2.2",
+]
+
+[project.urls]
+Homepage = "https://xzchick.github.io/homebrew-envy/tools/"
+Source = "https://github.com/xzchick/envy-tools"
+
+[project.scripts]
+envy-tools = "envy_tools.cli:main"
+
+[project.gui-scripts]
+envy-tools-gui = "envy_tools.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["envy_tools*"]
+
+[tool.setuptools.package-data]
+envy_tools = ["catalog.json"]

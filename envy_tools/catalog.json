@@ -1,0 +1,31 @@
+{
+  "format": 1,
+  "apps": [
+    {"slug": "vault", "name": "ENVY Vault", "repo": "envy-vault", "bundle": "envy-vault", "kind": "gui", "network": false,
+     "summary": "Passphrase file encryption with AES-256-GCM and scrypt"},
+    {"slug": "veil", "name": "ENVY Veil", "repo": "envy-veil", "bundle": "envy-veil", "kind": "gui", "network": false,
+     "summary": "Hide an encrypted file inside a PNG, BMP or WAV carrier"},
+    {"slug": "casebook", "name": "ENVY Casebook", "repo": "envy-casebook", "bundle": "envy-casebook", "kind": "gui", "network": false,
+     "summary": "Encrypted, revision-preserving case notes with a link chart"},
+    {"slug": "crypto-workbench", "name": "ENVY Cryptography Workbench", "repo": "envy-crypto-workbench", "bundle": "envy-crypto", "kind": "gui", "network": false,
+     "summary": "Encodings, classical ciphers and text analysis, for learning"},
+    {"slug": "ops-desk", "name": "ENVY Ops Desk", "repo": "envy-ops-desk", "bundle": "envy-ops-desk", "kind": "gui", "network": false,
+     "summary": "Encrypted operations plans with authenticated handoffs"},
+    {"slug": "evidence-vault", "name": "ENVY Evidence Vault", "repo": "envy-evidence-vault", "bundle": "envy-evidence-vault", "kind": "gui", "network": false,
+     "summary": "Copied-file intake with a hash-verified custody journal"},
+    {"slug": "integrity-monitor", "name": "ENVY Integrity Monitor", "repo": "envy-integrity-monitor", "bundle": "envy-integrity-monitor", "kind": "gui", "network": false,
+     "summary": "Encrypted file-integrity baselines and change detection"},
+    {"slug": "orbit", "name": "ENVY Orbit", "repo": "envy-orbit", "bundle": "envy-orbit", "kind": "gui", "network": false,
+     "summary": "Track recurring tasks by cadence: what's overdue, due or on track"},
+    {"slug": "skywatch", "name": "ENVY SkyWatch", "repo": "envy-skywatch", "bundle": "envy-skywatch", "kind": "gui", "network": false,
+     "summary": "Encrypted watchlists and offline content scanning"},
+    {"slug": "oracle", "name": "ENVY Oracle", "repo": "envy-oracle", "bundle": "envy-oracle", "kind": "gui", "network": false,
+     "summary": "Record forecasts and score your calibration"},
+    {"slug": "hypothesis", "name": "ENVY Hypothesis", "repo": "envy-hypothesis", "bundle": "envy-hypothesis", "kind": "gui", "network": false,
+     "summary": "Analysis of Competing Hypotheses"},
+    {"slug": "recon", "name": "ENVY Recon", "repo": "envy-recon", "bundle": "envy-recon", "kind": "terminal", "network": true,
+     "summary": "OSINT terminal for domains, IPs, certificates and file metadata"},
+    {"slug": "tunnel", "name": "ENVY Tunnel", "repo": "envy-tunnel", "bundle": "envy-tunnel", "kind": "gui", "network": true,
+     "summary": "Your own WireGuard VPN on a server you control"}
+  ]
+}
