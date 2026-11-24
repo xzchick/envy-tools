@@ -2,7 +2,7 @@
 
 All notable changes to this project. This project adheres to semantic versioning.
 
-## Unreleased
+## v0.1.1 — 2026-11-24
 
 - Short names: `install integrity`, `crypto` or `"ops desk"` work. Exact names still win
   (`vault` is Vault, not Evidence Vault), and an ambiguous name lists the choices
