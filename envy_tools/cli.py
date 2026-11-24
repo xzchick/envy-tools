@@ -66,7 +66,17 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _safe_streams() -> None:
+    """Never crash on ✓ or → when output goes to a pipe or a legacy Windows code page."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _safe_streams()
     args = build_parser().parse_args(argv)
     if args.command in (None, "gui"):
         from .gui import launch

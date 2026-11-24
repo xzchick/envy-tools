@@ -14,6 +14,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -22,15 +23,17 @@ APP = "envy-tools"
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     binary = ROOT / "dist" / "standalone" / APP / (APP + (".exe" if os.name == "nt" else ""))
     if not binary.exists():
         raise SystemExit(f"standalone binary not found: {binary}")
     with tempfile.TemporaryDirectory() as home:
-        env = dict(os.environ, ENVY_TOOLS_HOME=home, PYTHONIOENCODING="utf-8")
+        env = dict(os.environ, ENVY_TOOLS_HOME=home)
+        env.pop("PYTHONIOENCODING", None)
 
         def run(*args, timeout=600):
             proc = subprocess.run([str(binary), *args], capture_output=True, text=True,
-                                  encoding="utf-8", errors="replace", timeout=timeout, env=env)
+                                  errors="replace", timeout=timeout, env=env)
             out = proc.stdout + proc.stderr
             print(out.strip())
             if proc.returncode != 0:
