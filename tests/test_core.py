@@ -334,6 +334,27 @@ class CatalogTests(unittest.TestCase):
         with self.assertRaisesRegex(ToolsError, "unknown app"):
             cat.resolve(apps, ["nope"])
 
+    def test_short_names(self):
+        apps = cat.builtin()
+        slugs = lambda *names: [a.slug for a in cat.resolve(apps, list(names))]
+        # a unique word or prefix picks the app
+        self.assertEqual(slugs("integrity"), ["integrity-monitor"])
+        self.assertEqual(slugs("crypto", "envy-crypto"), ["crypto-workbench"])  # bundle name too; no duplicates
+        self.assertEqual(slugs("evidence", "hypo", "ops", "sky"), ["evidence-vault", "hypothesis", "ops-desk", "skywatch"])
+        # spaces, underscores and case are forgiven
+        self.assertEqual(slugs("Ops Desk", "evidence_vault", "ENVY-Integrity-Monitor"),
+                         ["ops-desk", "evidence-vault", "integrity-monitor"])
+        # an exact name always wins over a word match ("vault" is not Evidence Vault)
+        self.assertEqual(slugs("vault"), ["vault"])
+        self.assertEqual(slugs("ALL")[:1], ["vault"])
+        # ambiguous names list the choices instead of guessing
+        self.assertEqual(slugs("orb", "ora"), ["orbit", "oracle"])
+        with self.assertRaisesRegex(ToolsError, r"could be vault, evidence-vault|could be evidence-vault, vault"):
+            cat.resolve(apps, ["vau"])
+        # too short to guess from
+        with self.assertRaisesRegex(ToolsError, "unknown app"):
+            cat.resolve(apps, ["or"])
+
     def test_offline_falls_back_to_builtin(self):
         tmp = tempfile.mkdtemp()
         try:

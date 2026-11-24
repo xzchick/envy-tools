@@ -100,17 +100,41 @@ def find(apps: list[App], query: str) -> list[App]:
     return [a for a in apps if all(w in f"{a.slug} {a.name} {a.summary}".lower() for w in words)]
 
 
-def resolve(apps: list[App], names: list[str]) -> list[App]:
+MIN_SHORT = 3  # shortest name that may match by prefix, so one letter never guesses
+
+
+def _normalize(name: str) -> str:
+    key = "-".join(name.lower().replace("_", " ").replace("-", " ").split())
+    return key.removeprefix("envy-")
+
+
+def resolve_one(apps: list[App], name: str) -> App:
+    """Find one app by name. Exact names win ("vault" is Vault, not Evidence Vault);
+    otherwise a unique prefix of the name or of one of its words ("integrity",
+    "crypto", "ops", "evidence") picks the app. Ambiguous names list the choices."""
+    key = _normalize(name)
     by = {a.slug: a for a in apps}
-    if names == ["all"]:
+    if key in by:
+        return by[key]
+    if len(key) >= MIN_SHORT:
+        hits = [a for a in apps
+                if a.slug.startswith(key) or any(w.startswith(key) for w in a.slug.split("-"))]
+        if len(hits) == 1:
+            return hits[0]
+        if hits:
+            raise ToolsError(f"'{name}' could be {', '.join(a.slug for a in hits)}. Say which one.")
+    hint = ", ".join(sorted(by))
+    raise ToolsError(f"unknown app: {name}. Available: {hint}")
+
+
+def resolve(apps: list[App], names: list[str]) -> list[App]:
+    if [n.lower() for n in names] == ["all"]:
         return list(apps)
-    out = []
+    out: list[App] = []
     for n in names:
-        key = n.lower().removeprefix("envy-")
-        if key not in by:
-            hint = ", ".join(sorted(by))
-            raise ToolsError(f"unknown app: {n}. Available: {hint}")
-        out.append(by[key])
+        app = resolve_one(apps, n)
+        if app not in out:
+            out.append(app)
     return out
 
 

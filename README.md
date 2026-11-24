@@ -59,6 +59,7 @@ envy-tools list                     # every app, and which are installed
 envy-tools list --check             # …plus the latest version of each
 envy-tools list vpn                 # search
 envy-tools install vault veil       # or: install all
+envy-tools install integrity crypto # short names work too
 envy-tools update                   # update everything installed
 envy-tools open vault
 envy-tools remove oracle
