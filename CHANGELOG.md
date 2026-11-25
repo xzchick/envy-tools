@@ -2,7 +2,7 @@
 
 All notable changes to this project. This project adheres to semantic versioning.
 
-## Unreleased
+## v0.1.2 — 2026-11-24
 
 - Installs ENVY Terminal and Hash Audit too. Apps can now start through their own launcher
   script (wrapped, never symlinked), keep their program in a subfolder, offer a one-time setup
