@@ -2,6 +2,15 @@
 
 All notable changes to this project. This project adheres to semantic versioning.
 
+## Unreleased
+
+- Installs ENVY Terminal and Hash Audit too. Apps can now start through their own launcher
+  script (wrapped, never symlinked), keep their program in a subfolder, offer a one-time setup
+  command, and say what they need installed alongside. One-shot commands open a shell that
+  shows their help instead of flashing closed.
+- These apps are listed under a new `apps_ext` key that earlier ENVY Tools versions ignore,
+  so they keep working unchanged
+
 ## v0.1.1 — 2026-11-24
 
 - Short names: `install integrity`, `crypto` or `"ops desk"` work. Exact names still win

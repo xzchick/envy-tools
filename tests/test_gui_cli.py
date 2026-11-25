@@ -66,12 +66,12 @@ class GuiTests(unittest.TestCase):
         self.fail(f"{slug} not listed")
 
     def test_lists_builtin_apps_before_any_network(self):
-        self.assertEqual(self.w.table.rowCount(), 13)
+        self.assertEqual(self.w.table.rowCount(), 15)
         self.assertEqual(self.http.calls, [])
 
     def test_check_adds_remote_apps_and_versions(self):
         self.w.check(); _wait(self.app, self.w)
-        self.assertEqual(self.w.table.rowCount(), 14)
+        self.assertEqual(self.w.table.rowCount(), 16)
         self.select("demo")
         self.assertIn("Available v1.0.0", self.w.table.item(self.w.table.currentRow(), 1).text())
         self.assertTrue(self.w.b_install.isEnabled())
@@ -110,7 +110,7 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(self.w.table.rowCount(), 1)
         self.assertEqual(self.w.table.item(0, 0).text(), "ENVY Tunnel")
         self.w.search.setText("")
-        self.assertEqual(self.w.table.rowCount(), 13)
+        self.assertEqual(self.w.table.rowCount(), 15)
 
     def test_errors_show_in_status(self):
         self.select("vault")  # not published in the fake GitHub

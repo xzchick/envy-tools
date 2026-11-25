@@ -6,6 +6,7 @@
    and make the launcher (a Start Menu shortcut on Windows, an app on macOS, a
    menu entry on Linux).
 3. Run the installed Veil's ``--version``, then remove it and check nothing is left.
+4. The same for ENVY Terminal (launcher scripts) and Hash Audit (a one-shot command).
 
 Needs the network (GitHub only).
 """
@@ -62,7 +63,35 @@ def main():
         assert not exe.exists(), "Veil still on disk after remove"
         for launcher in rec["launchers"]:
             assert not Path(launcher).exists(), f"launcher left behind: {launcher}"
-        print("standalone smoke test passed: real install, run and remove of ENVY Veil")
+
+        # Apps from the extended list: ENVY Terminal starts through its own launcher
+        # script (program in bin/envy/), Hash Audit is a one-shot command from a repo
+        # without the envy- prefix. Install both by short name, run them, remove them.
+        out = run("install", "terminal", "hash")
+        assert out.count("checksum OK") == 2, out
+        manifest = json.loads((Path(home) / "installed.json").read_text(encoding="utf-8"))
+        for slug in ("terminal", "hash-audit"):
+            rec = manifest["apps"][slug]
+            exe = Path(rec["exe"])
+            proc = subprocess.run([str(exe), "--version"], capture_output=True, text=True, timeout=120)
+            assert proc.returncode == 0 and re.search(r"\d+\.\d+\.\d+", proc.stdout), (slug, proc.stdout, proc.stderr)
+            print(f"installed {slug} runs: {proc.stdout.strip()}")
+            for launcher in rec["launchers"]:
+                assert Path(launcher).exists(), launcher
+        term = manifest["apps"]["terminal"]
+        start = Path(term["folder"]) / ("start-envy.ps1" if os.name == "nt" else "start-envy.sh")
+        assert start.is_file(), start
+        if os.name != "nt":
+            cmd = Path(home) / "bin" / "envy-terminal"
+            assert cmd.is_file() and not cmd.is_symlink() and str(start) in cmd.read_text(), "start wrapper"
+            assert (Path(home) / "bin" / "envy-terminal-setup").is_file(), "setup command"
+        run("remove", "terminal", "hash-audit")
+        left = json.loads((Path(home) / "installed.json").read_text(encoding="utf-8"))["apps"]
+        assert not left, left
+        for slug in ("terminal", "hash-audit"):
+            for launcher in manifest["apps"][slug]["launchers"]:
+                assert not Path(launcher).exists(), f"launcher left behind: {launcher}"
+        print("standalone smoke test passed: real install, run and remove of Veil, ENVY Terminal and Hash Audit")
 
 
 if __name__ == "__main__":

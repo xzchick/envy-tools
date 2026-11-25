@@ -35,6 +35,27 @@ from .catalog import App, ToolsError
 from .net import Http, parse_sums
 
 
+def _split_windows_args(args: str) -> list[str]:
+    """Shortcut-style argument string → argv items (only the fixed forms windows_command makes)."""
+    if args.startswith("/k "):
+        inner = args[3:].strip('"')               # "C:\path\tool.exe" --help
+        prog, _, rest = inner.partition('" ')
+        return ["/k", prog.strip('"')] + rest.split()
+    parts, cur, quoted = [], "", False
+    for ch in args:
+        if ch == '"':
+            quoted = not quoted
+        elif ch == " " and not quoted:
+            if cur:
+                parts.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    if cur:
+        parts.append(cur)
+    return parts
+
+
 @dataclass
 class Installed:
     slug: str
@@ -233,8 +254,9 @@ class Installer:
             stem = asset.removesuffix(".tar.gz").removesuffix(".zip")
             folder = unpack / stem
             exe_name = app.exe_name(self.os_name)
-            if not (folder / exe_name).is_file():
-                raise ToolsError(f"{asset} doesn't contain {stem}/{exe_name}; nothing was installed")
+            for need in (exe_name, app.start(self.os_name), app.setup(self.os_name)):
+                if need and not (folder / need).is_file():
+                    raise ToolsError(f"{asset} doesn't contain {stem}/{need}; nothing was installed")
             dest = self.paths.apps / app.slug / stem
             if dest.exists():
                 shutil.rmtree(dest)
@@ -242,10 +264,13 @@ class Installer:
             shutil.move(str(folder), str(dest))
         exe = dest / exe_name
         if self.os_name != "windows":
-            exe.chmod(exe.stat().st_mode | 0o111)
+            for runnable in (exe_name, app.start(self.os_name), app.setup(self.os_name)):
+                if runnable:
+                    f = dest / runnable
+                    f.chmod(f.stat().st_mode | 0o111)
         if current:
             launchers.remove(current.launchers)
-        made = launchers.create(app, exe, self.paths, self.os_name, self.run)
+        made = launchers.create(app, dest, self.paths, self.os_name, self.run)
         record = Installed(app.slug, tag, str(dest), str(exe), made, time.time())
         records = self.installed()
         records[app.slug] = record
@@ -254,6 +279,17 @@ class Installer:
             if old != dest and not old.name.startswith("."):
                 shutil.rmtree(old, ignore_errors=True)
         self.log(f"✓ {app.name} {tag} installed")
+        if app.needs:
+            self.log(f"  needs: {app.needs}")
+        setup = app.setup(self.os_name)
+        if setup and not current:
+            if self.os_name == "windows":
+                cmd = f'powershell -ExecutionPolicy Bypass -File "{dest / setup}"'
+            elif self.paths.bin_dir is not None:
+                cmd = f"{app.bundle}-setup"
+            else:
+                cmd = f'sh "{dest / setup}"'
+            self.log(f"  first time: run  {cmd}  once to finish setting it up")
         return record
 
     def update(self, apps: list[App], progress=None, require_signature: bool = False) -> list[str]:
@@ -285,7 +321,16 @@ class Installer:
         rec = self.installed().get(app.slug)
         if rec is None or not Path(rec.exe).exists():
             raise ToolsError(f"{app.name} isn't installed")
-        exe = rec.exe
+        folder = Path(rec.folder)
+        target = launchers.launch_target(app, folder, self.os_name)
+        if not target.exists():
+            raise ToolsError(f"{app.name} is missing {target.name}; reinstall it")
+        if self.os_name != "windows" and app.cli:
+            target = launchers.cli_helper(app, Path(rec.exe))
+        exe = str(target)
+        if self.os_name == "windows" and (app.cli or target.suffix.lower() == ".ps1"):
+            program, args = launchers.windows_command(app, target)
+            return ["cmd", "/c", "start", "", program] + (_split_windows_args(args) if args else [])
         if app.kind == "terminal":
             if self.os_name == "macos":
                 return ["open", "-a", "Terminal", exe]

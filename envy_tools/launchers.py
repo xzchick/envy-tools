@@ -72,6 +72,42 @@ def _sh_quote(text: str) -> str:
     return "'" + str(text).replace("'", "'\"'\"'") + "'"
 
 
+def launch_target(app: App, folder: Path, os_name: str) -> Path:
+    """What starting the app means: its own launcher script if it has one, else its program."""
+    start = app.start(os_name)
+    return folder / (start if start else app.exe_name(os_name))
+
+
+def _wrapper(script: Path, dest: Path) -> Path:
+    """A command that runs a launcher script in place. A bare symlink would break
+    scripts that find their files relative to their own location."""
+    if dest.is_symlink() or dest.exists():
+        dest.unlink()
+    return _write(dest, "#!/bin/sh\nexec " + _sh_quote(script) + ' "$@"\n', 0o755)
+
+
+def cli_helper(app: App, exe: Path) -> Path:
+    """For one-shot commands: a script that shows the command's help, then leaves an
+    interactive shell where it's on PATH, so a menu click doesn't flash and vanish."""
+    helper = exe.parent / ".envy-tools-open.sh"
+    tip = f"{app.name}: type  {exe.name} --help  to see every option."
+    return _write(helper, "#!/bin/sh\n"
+                  f"export PATH={_sh_quote(exe.parent)}:\"$PATH\"\n"
+                  'cd "$HOME"\n'
+                  f"{_sh_quote(exe)} --help\n"
+                  f"echo; echo {_sh_quote(tip)}\n"
+                  'exec "${SHELL:-/bin/sh}" -i\n', 0o755)
+
+
+def windows_command(app: App, target: Path) -> tuple[str, str]:
+    """(program, arguments) for a Start Menu shortcut that starts `target` properly."""
+    if target.suffix.lower() == ".ps1":
+        return "powershell.exe", f'-NoProfile -ExecutionPolicy Bypass -NoExit -File "{target}"'
+    if app.cli:
+        return os.environ.get("ComSpec") or "cmd.exe", f'/k ""{target}" --help"'
+    return str(target), ""
+
+
 def macos_app(app: App, exe: Path, menu_dir: Path) -> Path:
     bundle = menu_dir / f"{app.name}.app"
     if bundle.exists():
@@ -93,8 +129,8 @@ def macos_app(app: App, exe: Path, menu_dir: Path) -> Path:
 
 def linux_desktop(app: App, exe: Path, menu_dir: Path) -> Path:
     exec_line = '"' + str(exe).replace("\\", "\\\\").replace('"', '\\"') + '"'
-    keywords = "ENVY;" + ("OSINT;recon;" if app.slug == "recon" else "VPN;WireGuard;" if app.slug == "tunnel"
-                          else "encrypted;offline;")
+    keywords = "ENVY;" + {"recon": "OSINT;recon;", "tunnel": "VPN;WireGuard;", "terminal": "AI;LLM;Ollama;research;",
+                          "hash-audit": "hash;password;recovery;hashcat;john;"}.get(app.slug, "encrypted;offline;")
     text = ("[Desktop Entry]\nType=Application\n"
             f"Name={app.name}\nComment={app.summary}\nExec={exec_line}\n"
             f"Terminal={'true' if app.kind == 'terminal' else 'false'}\n"
@@ -105,11 +141,12 @@ def linux_desktop(app: App, exe: Path, menu_dir: Path) -> Path:
 def windows_shortcut(app: App, exe: Path, menu_dir: Path, run=subprocess.run) -> Path:
     menu_dir.mkdir(parents=True, exist_ok=True)
     lnk = menu_dir / f"{app.name}.lnk"
+    program, args = windows_command(app, exe)
     # Values travel in environment variables, so no path needs PowerShell quoting.
     script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:ENVY_LNK); "
-              "$s.TargetPath = $env:ENVY_EXE; $s.WorkingDirectory = $env:ENVY_DIR; "
+              "$s.TargetPath = $env:ENVY_EXE; $s.Arguments = $env:ENVY_ARGS; $s.WorkingDirectory = $env:ENVY_DIR; "
               "$s.Description = $env:ENVY_DESC; $s.Save()")
-    env = dict(os.environ, ENVY_LNK=str(lnk), ENVY_EXE=str(exe), ENVY_DIR=str(exe.parent),
+    env = dict(os.environ, ENVY_LNK=str(lnk), ENVY_EXE=program, ENVY_ARGS=args, ENVY_DIR=str(exe.parent),
                ENVY_DESC=app.summary)
     proc = run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
                env=env, capture_output=True, text=True, timeout=60)
@@ -118,17 +155,24 @@ def windows_shortcut(app: App, exe: Path, menu_dir: Path, run=subprocess.run) ->
     return lnk
 
 
-def create(app: App, exe: Path, paths: Paths, os_name: str, run=subprocess.run) -> list[str]:
+def create(app: App, folder: Path, paths: Paths, os_name: str, run=subprocess.run) -> list[str]:
+    """Launchers for the app installed in `folder`. Returns every file made."""
     made: list[Path] = []
+    exe = folder / app.exe_name(os_name)
+    target = launch_target(app, folder, os_name)
     if os_name == "windows":
-        made.append(windows_shortcut(app, exe, paths.menu_dir, run))
+        made.append(windows_shortcut(app, target, paths.menu_dir, run))
+        return [str(p) for p in made]
+    if paths.bin_dir is not None:
+        command = paths.bin_dir / app.bundle
+        made.append(_wrapper(target, command) if app.start(os_name) else _link(exe, command))
+        if app.setup(os_name):
+            made.append(_wrapper(folder / app.setup(os_name), paths.bin_dir / f"{app.bundle}-setup"))
+    menu_target = cli_helper(app, exe) if app.cli else target
+    if os_name == "macos":
+        made.append(macos_app(app, menu_target, paths.menu_dir))
     else:
-        if paths.bin_dir is not None:
-            made.append(_link(exe, paths.bin_dir / app.bundle))
-        if os_name == "macos":
-            made.append(macos_app(app, exe, paths.menu_dir))
-        else:
-            made.append(linux_desktop(app, exe, paths.menu_dir))
+        made.append(linux_desktop(app, menu_target, paths.menu_dir))
     return [str(p) for p in made]
 
 

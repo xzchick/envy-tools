@@ -19,6 +19,19 @@ from envy_tools.net import _check_url, parse_sums
 
 DEMO = App("demo", "ENVY Demo", "envy-demo", "envy-demo", "A demo app", "gui", False)
 TERM = App("termy", "ENVY Termy", "envy-termy", "envy-termy", "A terminal app", "terminal", True)
+SCRIPTED = App("scripted", "ENVY Scripted", "envy-scripted", "envy-scripted", "An app with launcher scripts",
+               "terminal", True, exe="bin/app/app", start_posix="start.sh", start_windows="start.ps1",
+               setup_posix="setup.sh", setup_windows="setup.ps1", needs="Something installed separately")
+CLIAPP = App("hash-audit", "Hash Audit", "hash-audit", "hash-audit", "A one-shot command", "terminal", False, cli=True,
+             needs="An engine")
+
+
+def scripted_bundle(tag, os_name="linux", arch="x86_64", skip=()):
+    stem = f"{SCRIPTED.bundle}-{tag}-{os_name}-{arch}"
+    files = {f"{stem}/start.sh": b'#!/bin/sh\necho "started $(basename "$(dirname "$0")")"\n',
+             f"{stem}/setup.sh": b"#!/bin/sh\necho setup ran\n",
+             f"{stem}/start.ps1": b"Write-Host started", f"{stem}/setup.ps1": b"Write-Host setup"}
+    return make_bundle(SCRIPTED, tag, os_name, arch, {k: v for k, v in files.items() if k.split("/")[-1] not in skip})
 
 
 def make_bundle(app, tag, os_name, arch="x86_64", extra=None):
@@ -258,6 +271,72 @@ class WindowsInstallTests(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+@unittest.skipIf(os.name == "nt", "runs the POSIX wrapper scripts it makes")
+class LaunchScriptTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.http = FakeHttp()
+        self.inst = new_installer(self.tmp, http=self.http, which=lambda n: "/usr/bin/xterm" if n == "xterm" else None)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_launcher_scripts_are_wrapped_not_symlinked_and_actually_run(self):
+        import subprocess
+        self.http.publish(SCRIPTED, "v1.0.0", [scripted_bundle("v1.0.0")])
+        rec = self.inst.install(SCRIPTED)
+        self.assertTrue(rec.exe.endswith("bin/app/app"))
+        cmd = Path(self.tmp) / "bin" / "envy-scripted"
+        self.assertTrue(cmd.is_file() and not cmd.is_symlink(), "a symlink would break $0-relative scripts")
+        out = subprocess.run([str(cmd)], capture_output=True, text=True, timeout=30).stdout
+        self.assertIn("started envy-scripted-v1.0.0-linux-x86_64", out)   # ran in place, found its own folder
+        setup = Path(self.tmp) / "bin" / "envy-scripted-setup"
+        self.assertIn("setup ran", subprocess.run([str(setup)], capture_output=True, text=True, timeout=30).stdout)
+        desktop = (Path(self.tmp) / "menu" / "envy-scripted.desktop").read_text()
+        self.assertIn("/start.sh", desktop)
+        self.assertIn("Terminal=true", desktop)
+        log = "\n".join(self.inst.logs)
+        self.assertIn("needs: Something installed separately", log)
+        self.assertIn("first time: run  envy-scripted-setup", log)
+        self.assertEqual(self.inst.open_argv(SCRIPTED)[-1], str(Path(rec.folder) / "start.sh"))
+        self.inst.remove(SCRIPTED)
+        self.assertFalse(cmd.exists() or setup.exists())
+
+    def test_missing_launcher_script_installs_nothing(self):
+        self.http.publish(SCRIPTED, "v1.0.0", [scripted_bundle("v1.0.0", skip=("start.sh",))])
+        with self.assertRaisesRegex(ToolsError, "doesn't contain .*start.sh"):
+            self.inst.install(SCRIPTED)
+        self.assertEqual(self.inst.installed(), {})
+        self.assertFalse((Path(self.tmp) / "bin" / "envy-scripted").exists())
+
+    def test_cli_app_menu_entry_shows_help_then_stays_open(self):
+        import subprocess
+        self.http.publish(CLIAPP, "v0.1.0", [make_bundle(CLIAPP, "v0.1.0", "linux")])
+        rec = self.inst.install(CLIAPP)
+        self.assertTrue((Path(self.tmp) / "bin" / "hash-audit").is_symlink())  # a plain binary: a link is fine
+        desktop = (Path(self.tmp) / "menu" / "hash-audit.desktop").read_text()
+        self.assertIn(".envy-tools-open.sh", desktop)
+        helper = Path(rec.folder) / ".envy-tools-open.sh"
+        text = helper.read_text()
+        self.assertIn("--help", text)
+        self.assertIn("exec \"${SHELL:-/bin/sh}\" -i", text)
+        out = subprocess.run([str(helper)], capture_output=True, text=True, timeout=30,
+                             env=dict(os.environ, SHELL="/bin/true")).stdout
+        self.assertIn("demo v0.1.0", out)   # the fake program ran (with --help)
+        mac = new_installer(self.tmp, os_name="macos", arch="arm64", http=self.http)
+        self.assertEqual(mac.open_argv(CLIAPP)[:3], ["open", "-a", "Terminal"])
+
+    def test_windows_commands(self):
+        prog, args = launchers.windows_command(SCRIPTED, Path("C:/x y/start.ps1"))
+        self.assertEqual(prog, "powershell.exe")
+        self.assertIn("-ExecutionPolicy Bypass -NoExit -File", args)
+        prog, args = launchers.windows_command(CLIAPP, Path("C:/x y/hash-audit.exe"))
+        self.assertTrue(prog.lower().endswith("cmd.exe"))
+        self.assertIn("--help", args)
+        prog, args = launchers.windows_command(DEMO, Path("C:/x/envy-demo.exe"))
+        self.assertEqual(args, "")
+
+
 class ExtractSafetyTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -303,19 +382,55 @@ class ExtractSafetyTests(unittest.TestCase):
             safe_extract(path, self.tmp / "out")
 
 
+def resources_text():
+    from importlib import resources
+    return resources.files("envy_tools").joinpath("catalog.json").read_text(encoding="utf-8")
+
+
 class CatalogTests(unittest.TestCase):
-    def test_builtin_catalog_lists_all_thirteen(self):
+    def test_builtin_catalog_lists_all_fifteen(self):
         apps = cat.builtin()
-        self.assertEqual(len(apps), 13)
+        self.assertEqual(len(apps), 15)
         self.assertIn("tunnel", {a.slug for a in apps})
         crypto = next(a for a in apps if a.slug == "crypto-workbench")
         self.assertEqual(crypto.bundle, "envy-crypto")
+
+    def test_extended_apps_and_their_validation(self):
+        apps = {a.slug: a for a in cat.builtin()}
+        t = apps["terminal"]
+        self.assertEqual((t.exe, t.start("linux"), t.start("windows"), t.setup("macos")),
+                         ("bin/envy/envy", "start-envy.sh", "start-envy.ps1", "setup-envy.sh"))
+        self.assertEqual(t.exe_name("windows"), "bin/envy/envy.exe")
+        self.assertTrue(apps["hash-audit"].cli)
+        self.assertEqual(cat.resolve(list(apps.values()), ["hash"])[0].slug, "hash-audit")
+
+        def entry(**extra):
+            base = {"slug": "x", "name": "ENVY X", "repo": "envy-x", "bundle": "envy-x", "summary": "x"}
+            return json.dumps({"format": 1, "apps": [], "apps_ext": [dict(base, **extra)]})
+        self.assertEqual(cat.parse(entry(exe="bin/x/x"))[0].exe, "bin/x/x")
+        for bad in ("../x", "/abs/x", "bin/../../x", "bin//x", "bin\\x", "a/./b"):
+            with self.assertRaises(ToolsError, msg=bad):
+                cat.parse(entry(exe=bad))
+        with self.assertRaises(ToolsError):
+            cat.parse(entry(start={"posix": "../../evil.sh"}))
+        with self.assertRaises(ToolsError):
+            cat.parse(entry(start={"mac": "s.sh"}))
+        with self.assertRaisesRegex(ToolsError, "bad repository"):
+            cat.parse(entry(repo="someone-elses-tool"))
+        with self.assertRaisesRegex(ToolsError, "unrecognised"):
+            cat.parse(json.dumps({"format": 1, "apps": [], "apps_ext": {"not": "a list"}}))
+
+    def test_older_versions_ignore_extended_apps(self):
+        # v0.1.0/0.1.1 read only "apps"; every entry there must stay valid for them.
+        data = json.loads(resources_text())
+        self.assertTrue(all(a["repo"].startswith("envy-") and set(a) <= {"slug", "name", "repo", "bundle", "kind", "network", "summary"}
+                            for a in data["apps"]))
 
     def test_remote_catalog_adds_apps_but_cannot_point_elsewhere(self):
         good = json.dumps({"format": 1, "apps": [{"slug": "new", "name": "ENVY New", "repo": "envy-new",
                                                   "bundle": "envy-new", "summary": "A new app"}]})
         merged = cat.merged(cat.parse(good))
-        self.assertEqual(len(merged), 14)
+        self.assertEqual(len(merged), 16)
         for evil in ({"repo": "evil/envy-x"}, {"repo": "../../x"}, {"bundle": "rm -rf"},
                      {"kind": "daemon"}, {"slug": "Bad Slug"}):
             entry = {"slug": "x", "name": "X", "repo": "envy-x", "bundle": "envy-x", "summary": "s"}
@@ -330,7 +445,7 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual([a.slug for a in cat.find(apps, "wireguard vpn")], ["tunnel"])
         self.assertIn("vault", {a.slug for a in cat.find(apps, "encryption")})
         self.assertEqual([a.slug for a in cat.resolve(apps, ["envy-vault", "Veil"])], ["vault", "veil"])
-        self.assertEqual(len(cat.resolve(apps, ["all"])), 13)
+        self.assertEqual(len(cat.resolve(apps, ["all"])), 15)
         with self.assertRaisesRegex(ToolsError, "unknown app"):
             cat.resolve(apps, ["nope"])
 
@@ -359,7 +474,7 @@ class CatalogTests(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         try:
             inst = new_installer(tmp)
-            self.assertEqual(len(inst.apps()), 13)
+            self.assertEqual(len(inst.apps()), 15)
             self.assertIn("built-in app list", "\n".join(inst.logs))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)

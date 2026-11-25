@@ -27,5 +27,17 @@
      "summary": "OSINT terminal for domains, IPs, certificates and file metadata"},
     {"slug": "tunnel", "name": "ENVY Tunnel", "repo": "envy-tunnel", "bundle": "envy-tunnel", "kind": "gui", "network": true,
      "summary": "Your own WireGuard VPN on a server you control"}
+  ],
+  "apps_ext": [
+    {"slug": "terminal", "name": "ENVY Terminal", "repo": "envy-terminal", "bundle": "envy-terminal", "kind": "terminal", "network": true,
+     "summary": "Local AI in your Terminal with document search and cited research",
+     "exe": "bin/envy/envy",
+     "start": {"posix": "start-envy.sh", "windows": "start-envy.ps1"},
+     "setup": {"posix": "setup-envy.sh", "windows": "setup-envy.ps1"},
+     "needs": "Ollama (ollama.com). Setup downloads the local model once, about 5 GB"},
+    {"slug": "hash-audit", "name": "Hash Audit", "repo": "hash-audit", "bundle": "hash-audit", "kind": "terminal", "network": false,
+     "summary": "Audit hashes you own or are authorized to test, with Hashcat or John",
+     "cli": true,
+     "needs": "Hashcat or John the Ripper Jumbo, installed by you"}
   ]
 }

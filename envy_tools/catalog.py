@@ -21,6 +21,10 @@ REMOTE_CATALOG = f"https://raw.githubusercontent.com/{OWNER}/envy-tools/main/env
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 _REPO = re.compile(r"^envy-[a-z0-9-]{1,40}$")
 _BUNDLE = re.compile(r"^envy-[a-z0-9-]{1,40}$")
+# Apps of the suite whose repository predates the envy- prefix. Still owner-locked.
+EXTRA_REPOS = frozenset({"hash-audit"})
+# A path inside an app's bundle folder: plain names joined by "/", never "..".
+_REL = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)*$")
 
 
 class ToolsError(Exception):
@@ -36,13 +40,47 @@ class App:
     summary: str
     kind: str = "gui"          # gui | terminal
     network: bool = False
+    exe: str = ""              # program inside the bundle folder; default: the bundle name
+    start_posix: str = ""      # launcher script that must start the app (macOS/Linux)
+    start_windows: str = ""    # …and on Windows (a .ps1)
+    setup_posix: str = ""      # one-time setup script, offered after install
+    setup_windows: str = ""
+    cli: bool = False          # a one-shot command: menu entries open a shell showing its help
+    needs: str = ""            # something the user installs separately, shown after install
 
     @property
     def repo_url(self) -> str:
         return f"https://github.com/{OWNER}/{self.repo}"
 
     def exe_name(self, os_name: str) -> str:
-        return self.bundle + (".exe" if os_name == "windows" else "")
+        return (self.exe or self.bundle) + (".exe" if os_name == "windows" else "")
+
+    def start(self, os_name: str) -> str:
+        return self.start_windows if os_name == "windows" else self.start_posix
+
+    def setup(self, os_name: str) -> str:
+        return self.setup_windows if os_name == "windows" else self.setup_posix
+
+
+def _rel(raw: dict, key: str, slug: str) -> str:
+    value = raw.get(key, "")
+    if isinstance(value, dict):          # {"posix": ..., "windows": ...} is split by the caller
+        raise ToolsError(f"bad {key} for {slug}")
+    if value == "":
+        return ""
+    if not (isinstance(value, str) and len(value) <= 120 and _REL.match(value)
+            and ".." not in value.split("/")):
+        raise ToolsError(f"bad {key} path for {slug}: {value!r}")
+    return value
+
+
+def _per_os(raw: dict, key: str, slug: str) -> tuple[str, str]:
+    value = raw.get(key)
+    if value is None:
+        return "", ""
+    if not isinstance(value, dict) or set(value) - {"posix", "windows"}:
+        raise ToolsError(f"bad {key} for {slug}")
+    return _rel(value, "posix", slug), _rel(value, "windows", slug)
 
 
 def _app(raw: dict) -> App:
@@ -52,9 +90,9 @@ def _app(raw: dict) -> App:
     name, summary, kind = raw.get("name"), raw.get("summary", ""), raw.get("kind", "gui")
     if not (isinstance(slug, str) and _SLUG.match(slug)):
         raise ToolsError(f"bad app id in catalog: {slug!r}")
-    if not (isinstance(repo, str) and _REPO.match(repo)):
+    if not (isinstance(repo, str) and (_REPO.match(repo) or repo in EXTRA_REPOS)):
         raise ToolsError(f"bad repository for {slug}: {repo!r}")
-    if not (isinstance(bundle, str) and _BUNDLE.match(bundle)):
+    if not (isinstance(bundle, str) and (_BUNDLE.match(bundle) or bundle in EXTRA_REPOS)):
         raise ToolsError(f"bad bundle name for {slug}: {bundle!r}")
     if not (isinstance(name, str) and 0 < len(name) <= 60 and name.isprintable()):
         raise ToolsError(f"bad name for {slug}")
@@ -62,7 +100,15 @@ def _app(raw: dict) -> App:
         raise ToolsError(f"bad summary for {slug}")
     if kind not in ("gui", "terminal"):
         raise ToolsError(f"bad kind for {slug}: {kind!r}")
-    return App(slug, name, repo, bundle, summary, kind, bool(raw.get("network", False)))
+    needs = raw.get("needs", "")
+    if not (isinstance(needs, str) and len(needs) <= 160 and needs.isprintable()):
+        raise ToolsError(f"bad needs for {slug}")
+    start_posix, start_windows = _per_os(raw, "start", slug)
+    setup_posix, setup_windows = _per_os(raw, "setup", slug)
+    return App(slug, name, repo, bundle, summary, kind, bool(raw.get("network", False)),
+               exe=_rel(raw, "exe", slug), start_posix=start_posix, start_windows=start_windows,
+               setup_posix=setup_posix, setup_windows=setup_windows,
+               cli=bool(raw.get("cli", False)), needs=needs)
 
 
 def parse(text: str) -> list[App]:
@@ -72,8 +118,14 @@ def parse(text: str) -> list[App]:
         raise ToolsError(f"catalog is not valid JSON: {exc}") from None
     if not isinstance(data, dict) or data.get("format") != 1 or not isinstance(data.get("apps"), list):
         raise ToolsError("unrecognised catalog format")
+    # "apps_ext" holds apps that need ENVY Tools 0.1.2 or later (launcher scripts, a
+    # program in a subfolder, older repository names). Earlier versions ignore the key,
+    # so adding apps there never breaks them.
+    ext = data.get("apps_ext", [])
+    if not isinstance(ext, list):
+        raise ToolsError("unrecognised catalog format")
     apps, seen = [], set()
-    for raw in data["apps"]:
+    for raw in data["apps"] + ext:
         app = _app(raw)
         if app.slug in seen:
             raise ToolsError(f"duplicate app in catalog: {app.slug}")
